@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../core/firebase_service.dart';
 import '../models/admin_models.dart';
 
 class AdminDatabase {
@@ -12,12 +15,21 @@ class AdminDatabase {
   final File _databaseFile;
 
   Future<AdminData> getData() async {
+    if (FirebaseService.isEnabled) {
+      return _getFirebaseData();
+    }
+
     await _seedIfNeeded();
     final rawData = await _databaseFile.readAsString();
     return AdminData.fromJson(jsonDecode(rawData) as Map<String, dynamic>);
   }
 
   Future<void> saveData(AdminData data) async {
+    if (FirebaseService.isEnabled) {
+      await _saveFirebaseData(data);
+      return;
+    }
+
     final encoder = const JsonEncoder.withIndent('  ');
     await _databaseFile.writeAsString(encoder.convert(data.toJson()));
   }
@@ -35,6 +47,28 @@ class AdminDatabase {
   }
 
   Future<void> deleteTopic(String topicId) async {
+    if (FirebaseService.isEnabled) {
+      final firestore = FirebaseFirestore.instance;
+      final batch = firestore.batch();
+      batch.delete(firestore.collection('topics').doc(topicId));
+      final quizzes = await firestore
+          .collection('quizzes')
+          .where('topicId', isEqualTo: topicId)
+          .get();
+      for (final quiz in quizzes.docs) {
+        batch.delete(quiz.reference);
+      }
+      final progress = await firestore
+          .collection('progress')
+          .where('topicId', isEqualTo: topicId)
+          .get();
+      for (final item in progress.docs) {
+        batch.delete(item.reference);
+      }
+      await batch.commit();
+      return;
+    }
+
     final data = await getData();
     await saveData(
       data.copyWith(
@@ -60,6 +94,14 @@ class AdminDatabase {
   }
 
   Future<void> deleteScenario(String scenarioId) async {
+    if (FirebaseService.isEnabled) {
+      await FirebaseFirestore.instance
+          .collection('ai_scenarios')
+          .doc(scenarioId)
+          .delete();
+      return;
+    }
+
     final data = await getData();
     await saveData(
       data.copyWith(
@@ -83,6 +125,14 @@ class AdminDatabase {
   }
 
   Future<void> deleteQuiz(String quizId) async {
+    if (FirebaseService.isEnabled) {
+      await FirebaseFirestore.instance
+          .collection('quizzes')
+          .doc(quizId)
+          .delete();
+      return;
+    }
+
     final data = await getData();
     await saveData(
       data.copyWith(
@@ -107,6 +157,20 @@ class AdminDatabase {
     required String userId,
     required String topicId,
   }) async {
+    if (FirebaseService.isEnabled) {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('progress')
+          .where('userId', isEqualTo: userId)
+          .where('topicId', isEqualTo: topicId)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isEmpty) {
+        return null;
+      }
+      final doc = snapshot.docs.first;
+      return UserProgress.fromJson({'progressId': doc.id, ...doc.data()});
+    }
+
     final data = await getData();
     for (final item in data.progress) {
       if (item.userId == userId && item.topicId == topicId) {
@@ -114,6 +178,79 @@ class AdminDatabase {
       }
     }
     return null;
+  }
+
+  Future<AdminData> _getFirebaseData() async {
+    await _seedFirebaseIfNeeded();
+    final firestore = FirebaseFirestore.instance;
+    final topics = await firestore.collection('topics').get();
+    final scenarios = await firestore.collection('ai_scenarios').get();
+    final quizzes = await firestore.collection('quizzes').get();
+    final progress = await firestore.collection('progress').get();
+
+    return AdminData(
+      topics: topics.docs
+          .map((doc) => Topic.fromJson({'topicId': doc.id, ...doc.data()}))
+          .toList(),
+      scenarios: scenarios.docs
+          .map(
+            (doc) => AiScenario.fromJson({'scenarioId': doc.id, ...doc.data()}),
+          )
+          .toList(),
+      quizzes: quizzes.docs
+          .map((doc) => Quiz.fromJson({'quizId': doc.id, ...doc.data()}))
+          .toList(),
+      progress: progress.docs
+          .map(
+            (doc) =>
+                UserProgress.fromJson({'progressId': doc.id, ...doc.data()}),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> _saveFirebaseData(AdminData data) async {
+    final batch = FirebaseFirestore.instance.batch();
+    for (final topic in data.topics) {
+      batch.set(
+        FirebaseFirestore.instance.collection('topics').doc(topic.id),
+        topic.toJson(),
+        SetOptions(merge: true),
+      );
+    }
+    for (final scenario in data.scenarios) {
+      batch.set(
+        FirebaseFirestore.instance.collection('ai_scenarios').doc(scenario.id),
+        scenario.toJson(),
+        SetOptions(merge: true),
+      );
+    }
+    for (final quiz in data.quizzes) {
+      batch.set(
+        FirebaseFirestore.instance.collection('quizzes').doc(quiz.id),
+        quiz.toJson(),
+        SetOptions(merge: true),
+      );
+    }
+    for (final item in data.progress) {
+      batch.set(
+        FirebaseFirestore.instance.collection('progress').doc(item.id),
+        item.toJson(),
+        SetOptions(merge: true),
+      );
+    }
+    await batch.commit();
+  }
+
+  Future<void> _seedFirebaseIfNeeded() async {
+    final topics = await FirebaseFirestore.instance
+        .collection('topics')
+        .limit(1)
+        .get();
+    if (topics.docs.isNotEmpty) {
+      return;
+    }
+    await _saveFirebaseData(_sampleData());
   }
 
   Future<void> _seedIfNeeded() async {

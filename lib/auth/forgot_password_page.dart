@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/firebase_service.dart';
 import 'services/auth_service.dart';
 import 'widgets/auth_button.dart';
 import 'widgets/auth_scaffold.dart';
@@ -45,6 +46,12 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         _emailController.text,
       );
       if (!mounted) {
+        return;
+      }
+
+      if (FirebaseService.isEnabled) {
+        _showMessage('Đã gửi link đặt lại mật khẩu vào email của bạn.');
+        Navigator.of(context).pop();
         return;
       }
 
@@ -148,7 +155,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             AuthButton(
               text: _isLoading
                   ? 'Đang xử lý...'
-                  : (_otpSent ? 'Đặt Lại Mật Khẩu' : 'Gửi OTP'),
+                  : (_otpSent
+                        ? 'Đặt Lại Mật Khẩu'
+                        : FirebaseService.isEnabled
+                        ? 'Gửi Email Đặt Lại Mật Khẩu'
+                        : 'Gửi OTP'),
               onPressed: _isLoading
                   ? () {}
                   : (_otpSent ? _resetPassword : _sendOtp),

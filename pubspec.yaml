@@ -36,6 +36,13 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_tts: ^4.2.5
   speech_to_text: ^7.3.0
+  firebase_core: ^4.9.0
+  firebase_auth: ^6.5.1
+  cloud_firestore: ^6.4.1
+  firebase_storage: ^13.4.1
+  firebase_analytics: ^12.4.1
+  firebase_messaging: ^16.2.2
+  firebase_remote_config: ^6.5.1
 
 dev_dependencies:
   flutter_test:

@@ -7,6 +7,7 @@ import '../admin/services/admin_database.dart';
 import '../auth/models/app_user.dart';
 import '../auth/services/user_database.dart';
 import '../core/app_colors.dart';
+import '../core/firebase_service.dart';
 import '../user/services/ai_conversation_service.dart';
 
 class UserHomePage extends StatefulWidget {
@@ -58,7 +59,9 @@ class _UserHomePageState extends State<UserHomePage> {
     );
     final oldLearned = existingProgress?.learnedWords.toSet() ?? <String>{};
     final newLearned = {...oldLearned, ...wordIds}.toList();
-    final gainedExp = (newLearned.length - oldLearned.length) * 10;
+    final gainedExp =
+        (newLearned.length - oldLearned.length) *
+        FirebaseService.intConfig('topic_word_reward', 10);
 
     await _adminDatabase.saveProgress(
       (existingProgress ??
@@ -75,6 +78,10 @@ class _UserHomePageState extends State<UserHomePage> {
 
     if (gainedExp > 0) {
       await _addExpAndRefreshStreak(gainedExp);
+      await FirebaseService.logEvent(
+        'topic_completed',
+        parameters: {'topic_id': topic.id, 'gained_exp': gainedExp},
+      );
     }
 
     _showMessage(
@@ -115,6 +122,10 @@ class _UserHomePageState extends State<UserHomePage> {
 
     if (reward > 0) {
       await _addExpAndRefreshStreak(reward);
+      await FirebaseService.logEvent(
+        'quiz_correct',
+        parameters: {'quiz_id': quiz.id, 'question_id': question.id},
+      );
     }
 
     _showMessage(
@@ -299,62 +310,68 @@ class _UserHeader extends StatelessWidget {
 }
 
 String _rankFor(int exp) {
-  if (exp >= 3000) {
+  if (exp >= FirebaseService.intConfig('diamond_exp', 3000)) {
     return 'Diamond';
   }
-  if (exp >= 1500) {
+  if (exp >= FirebaseService.intConfig('advanced_exp', 1500)) {
     return 'Gold';
   }
-  if (exp >= 600) {
+  if (exp >= FirebaseService.intConfig('intermediate_exp', 600)) {
     return 'Silver';
   }
   return 'Bronze';
 }
 
 String _unlockedDifficultyFor(int exp) {
-  if (exp >= 1500) {
+  if (exp >= FirebaseService.intConfig('advanced_exp', 1500)) {
     return 'Đã mở khóa: Beginner, Intermediate, Advanced';
   }
-  if (exp >= 600) {
+  if (exp >= FirebaseService.intConfig('intermediate_exp', 600)) {
     return 'Đã mở khóa: Beginner, Intermediate';
   }
   return 'Đã mở khóa: Beginner';
 }
 
 int _previousMilestoneFor(int exp) {
-  if (exp >= 3000) {
-    return 3000;
+  final intermediateExp = FirebaseService.intConfig('intermediate_exp', 600);
+  final advancedExp = FirebaseService.intConfig('advanced_exp', 1500);
+  final diamondExp = FirebaseService.intConfig('diamond_exp', 3000);
+  if (exp >= diamondExp) {
+    return diamondExp;
   }
-  if (exp >= 1500) {
-    return 1500;
+  if (exp >= advancedExp) {
+    return advancedExp;
   }
-  if (exp >= 600) {
-    return 600;
+  if (exp >= intermediateExp) {
+    return intermediateExp;
   }
   return 0;
 }
 
 int _nextMilestoneFor(int exp) {
-  if (exp < 600) {
-    return 600;
+  final intermediateExp = FirebaseService.intConfig('intermediate_exp', 600);
+  final advancedExp = FirebaseService.intConfig('advanced_exp', 1500);
+  final diamondExp = FirebaseService.intConfig('diamond_exp', 3000);
+  if (exp < intermediateExp) {
+    return intermediateExp;
   }
-  if (exp < 1500) {
-    return 1500;
+  if (exp < advancedExp) {
+    return advancedExp;
   }
-  if (exp < 3000) {
-    return 3000;
+  if (exp < diamondExp) {
+    return diamondExp;
   }
   return 5000;
 }
 
 String _nextMilestoneLabelFor(int exp) {
-  if (exp < 600) {
+  if (exp < FirebaseService.intConfig('intermediate_exp', 600)) {
     return 'mở khóa Intermediate';
   }
-  if (exp < 1500) {
+  if (exp < FirebaseService.intConfig('advanced_exp', 1500)) {
     return 'mở khóa Advanced';
   }
-  if (exp < 3000) {
+  if (exp < FirebaseService.intConfig('diamond_exp', 3000)) {
     return 'lên Diamond';
   }
   return 'duy trì top bảng xếp hạng';
@@ -511,10 +528,10 @@ class _RoleplayPage extends StatelessWidget {
 
   int _requiredExp(AiScenario scenario) {
     if (scenario.difficulty == 'Advanced') {
-      return 1500;
+      return FirebaseService.intConfig('advanced_exp', 1500);
     }
     if (scenario.difficulty == 'Intermediate') {
-      return 600;
+      return FirebaseService.intConfig('intermediate_exp', 600);
     }
     return 0;
   }
@@ -669,6 +686,10 @@ class _AiConversationPageState extends State<_AiConversationPage> {
 
     final reward = _practiceRewardFor(text);
     await widget.onPracticeReward(reward);
+    await FirebaseService.logEvent(
+      'ai_speaking_turn_completed',
+      parameters: {'scenario_id': widget.scenario.id, 'reward': reward},
+    );
     if (!mounted) {
       return;
     }
@@ -889,12 +910,12 @@ class _AiConversationPageState extends State<_AiConversationPage> {
         .where((word) => word.isNotEmpty)
         .length;
     if (wordCount >= 10) {
-      return 25;
+      return FirebaseService.intConfig('speaking_long_reward', 25);
     }
     if (wordCount >= 5) {
-      return 18;
+      return FirebaseService.intConfig('speaking_medium_reward', 18);
     }
-    return 10;
+    return FirebaseService.intConfig('speaking_short_reward', 10);
   }
 
   String _feedbackFor(String text) {
