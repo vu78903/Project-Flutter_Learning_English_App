@@ -13,12 +13,21 @@ class AdminDatabase {
           File('${Directory.systemTemp.path}/lexigo_admin_data.json');
 
   final File _databaseFile;
+  static const _firestoreTimeout = Duration(seconds: 8);
 
   Future<AdminData> getData() async {
     if (FirebaseService.isEnabled) {
-      return _getFirebaseData();
+      try {
+        return await _getFirebaseData();
+      } on Object {
+        return _getLocalData();
+      }
     }
 
+    return _getLocalData();
+  }
+
+  Future<AdminData> _getLocalData() async {
     await _seedIfNeeded();
     final rawData = await _databaseFile.readAsString();
     return AdminData.fromJson(jsonDecode(rawData) as Map<String, dynamic>);
@@ -26,8 +35,12 @@ class AdminDatabase {
 
   Future<void> saveData(AdminData data) async {
     if (FirebaseService.isEnabled) {
-      await _saveFirebaseData(data);
-      return;
+      try {
+        await _saveFirebaseData(data);
+        return;
+      } on Object {
+        // Keep the app usable while Firestore is not ready or rules reject writes.
+      }
     }
 
     final encoder = const JsonEncoder.withIndent('  ');
@@ -48,25 +61,33 @@ class AdminDatabase {
 
   Future<void> deleteTopic(String topicId) async {
     if (FirebaseService.isEnabled) {
-      final firestore = FirebaseFirestore.instance;
-      final batch = firestore.batch();
-      batch.delete(firestore.collection('topics').doc(topicId));
-      final quizzes = await firestore
-          .collection('quizzes')
-          .where('topicId', isEqualTo: topicId)
-          .get();
-      for (final quiz in quizzes.docs) {
-        batch.delete(quiz.reference);
+      try {
+        final firestore = FirebaseFirestore.instance;
+        final batch = firestore.batch();
+        batch.delete(firestore.collection('topics').doc(topicId));
+        final quizzes = await _runFirestore(
+          firestore
+              .collection('quizzes')
+              .where('topicId', isEqualTo: topicId)
+              .get(),
+        );
+        for (final quiz in quizzes.docs) {
+          batch.delete(quiz.reference);
+        }
+        final progress = await _runFirestore(
+          firestore
+              .collection('progress')
+              .where('topicId', isEqualTo: topicId)
+              .get(),
+        );
+        for (final item in progress.docs) {
+          batch.delete(item.reference);
+        }
+        await _runFirestore(batch.commit());
+        return;
+      } on Object {
+        // Fall back to the local copy below.
       }
-      final progress = await firestore
-          .collection('progress')
-          .where('topicId', isEqualTo: topicId)
-          .get();
-      for (final item in progress.docs) {
-        batch.delete(item.reference);
-      }
-      await batch.commit();
-      return;
     }
 
     final data = await getData();
@@ -95,11 +116,17 @@ class AdminDatabase {
 
   Future<void> deleteScenario(String scenarioId) async {
     if (FirebaseService.isEnabled) {
-      await FirebaseFirestore.instance
-          .collection('ai_scenarios')
-          .doc(scenarioId)
-          .delete();
-      return;
+      try {
+        await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('ai_scenarios')
+              .doc(scenarioId)
+              .delete(),
+        );
+        return;
+      } on Object {
+        // Fall back to the local copy below.
+      }
     }
 
     final data = await getData();
@@ -126,11 +153,14 @@ class AdminDatabase {
 
   Future<void> deleteQuiz(String quizId) async {
     if (FirebaseService.isEnabled) {
-      await FirebaseFirestore.instance
-          .collection('quizzes')
-          .doc(quizId)
-          .delete();
-      return;
+      try {
+        await _runFirestore(
+          FirebaseFirestore.instance.collection('quizzes').doc(quizId).delete(),
+        );
+        return;
+      } on Object {
+        // Fall back to the local copy below.
+      }
     }
 
     final data = await getData();
@@ -158,17 +188,23 @@ class AdminDatabase {
     required String topicId,
   }) async {
     if (FirebaseService.isEnabled) {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('progress')
-          .where('userId', isEqualTo: userId)
-          .where('topicId', isEqualTo: topicId)
-          .limit(1)
-          .get();
-      if (snapshot.docs.isEmpty) {
-        return null;
+      try {
+        final snapshot = await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('progress')
+              .where('userId', isEqualTo: userId)
+              .where('topicId', isEqualTo: topicId)
+              .limit(1)
+              .get(),
+        );
+        if (snapshot.docs.isEmpty) {
+          return null;
+        }
+        final doc = snapshot.docs.first;
+        return UserProgress.fromJson({'progressId': doc.id, ...doc.data()});
+      } on Object {
+        // Fall back to the local copy below.
       }
-      final doc = snapshot.docs.first;
-      return UserProgress.fromJson({'progressId': doc.id, ...doc.data()});
     }
 
     final data = await getData();
@@ -183,10 +219,14 @@ class AdminDatabase {
   Future<AdminData> _getFirebaseData() async {
     await _seedFirebaseIfNeeded();
     final firestore = FirebaseFirestore.instance;
-    final topics = await firestore.collection('topics').get();
-    final scenarios = await firestore.collection('ai_scenarios').get();
-    final quizzes = await firestore.collection('quizzes').get();
-    final progress = await firestore.collection('progress').get();
+    final topics = await _runFirestore(firestore.collection('topics').get());
+    final scenarios = await _runFirestore(
+      firestore.collection('ai_scenarios').get(),
+    );
+    final quizzes = await _runFirestore(firestore.collection('quizzes').get());
+    final progress = await _runFirestore(
+      firestore.collection('progress').get(),
+    );
 
     return AdminData(
       topics: topics.docs
@@ -239,18 +279,21 @@ class AdminDatabase {
         SetOptions(merge: true),
       );
     }
-    await batch.commit();
+    await _runFirestore(batch.commit());
   }
 
   Future<void> _seedFirebaseIfNeeded() async {
-    final topics = await FirebaseFirestore.instance
-        .collection('topics')
-        .limit(1)
-        .get();
+    final topics = await _runFirestore(
+      FirebaseFirestore.instance.collection('topics').limit(1).get(),
+    );
     if (topics.docs.isNotEmpty) {
       return;
     }
     await _saveFirebaseData(_sampleData());
+  }
+
+  Future<T> _runFirestore<T>(Future<T> operation) {
+    return operation.timeout(_firestoreTimeout);
   }
 
   Future<void> _seedIfNeeded() async {

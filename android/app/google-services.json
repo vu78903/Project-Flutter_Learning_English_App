@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "23405714280",
+    "project_id": "lexigo-1457f",
+    "storage_bucket": "lexigo-1457f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:23405714280:android:e3dd98ada8fb0b168d54dd",
+        "android_client_info": {
+          "package_name": "com.example.bt_buoi10"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBenErVH0BgfMIkikP6vcV_gWb7KzVAevk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:23405714280:android:eae7de664141870e8d54dd",
+        "android_client_info": {
+          "package_name": "com.example.do_an"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBenErVH0BgfMIkikP6vcV_gWb7KzVAevk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

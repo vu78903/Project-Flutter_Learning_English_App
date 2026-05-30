@@ -5,28 +5,65 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'Firebase web chưa được cấu hình. Hãy chạy flutterfire configure.',
-      );
+      return web;
     }
 
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        throw UnsupportedError(
-          'Firebase Android chưa được cấu hình. Hãy chạy flutterfire configure.',
-        );
+        return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'Firebase iOS chưa được cấu hình. Hãy chạy flutterfire configure.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'Firebase macOS chưa được cấu hình. Hãy chạy flutterfire configure.',
-        );
+        return macos;
       case TargetPlatform.windows:
       case TargetPlatform.linux:
       case TargetPlatform.fuchsia:
-        throw UnsupportedError('Firebase chưa hỗ trợ nền tảng này trong app.');
+        return windows;
     }
   }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyCJSeyeLjPsaRwAcRDyvYj7wTHmoHhGR7Q',
+    appId: '1:23405714280:web:7bafd67847b228e88d54dd',
+    messagingSenderId: '23405714280',
+    projectId: 'lexigo-1457f',
+    authDomain: 'lexigo-1457f.firebaseapp.com',
+    storageBucket: 'lexigo-1457f.firebasestorage.app',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyA7BhdHTl0prbmYEac4sjGpOsKrJbeiQtY',
+    appId: '1:23405714280:ios:a338371a87dccaae8d54dd',
+    messagingSenderId: '23405714280',
+    projectId: 'lexigo-1457f',
+    storageBucket: 'lexigo-1457f.firebasestorage.app',
+    iosBundleId: 'com.example.doAn',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyA7BhdHTl0prbmYEac4sjGpOsKrJbeiQtY',
+    appId: '1:23405714280:ios:a338371a87dccaae8d54dd',
+    messagingSenderId: '23405714280',
+    projectId: 'lexigo-1457f',
+    storageBucket: 'lexigo-1457f.firebasestorage.app',
+    iosBundleId: 'com.example.doAn',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyBenErVH0BgfMIkikP6vcV_gWb7KzVAevk',
+    appId: '1:23405714280:android:eae7de664141870e8d54dd',
+    messagingSenderId: '23405714280',
+    projectId: 'lexigo-1457f',
+    storageBucket: 'lexigo-1457f.firebasestorage.app',
+  );
+
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyCJSeyeLjPsaRwAcRDyvYj7wTHmoHhGR7Q',
+    appId: '1:23405714280:web:76a5a70857e6e9be8d54dd',
+    messagingSenderId: '23405714280',
+    projectId: 'lexigo-1457f',
+    authDomain: 'lexigo-1457f.firebaseapp.com',
+    storageBucket: 'lexigo-1457f.firebasestorage.app',
+  );
+
 }

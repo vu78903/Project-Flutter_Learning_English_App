@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -16,6 +18,10 @@ class AuthService {
 
   final UserDatabase _userDatabase;
   final OtpService _otpService;
+
+  static const _firebaseOperationTimeout = Duration(seconds: 10);
+  static const _firestoreSetupMessage =
+      'Cloud Firestore chưa được bật cho project này. Vào Firebase Console > Firestore Database > Create database, tạo database rồi chạy lại app.';
 
   Future<AppUser> register({
     required String fullName,
@@ -153,10 +159,12 @@ class AuthService {
         currentStreak: 0,
         lastStudyDate: null,
       );
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(firebaseUser.uid)
-          .set(user.toJson());
+      await _runFirebaseOperation(
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(firebaseUser.uid)
+            .set(user.toJson()),
+      );
       await FirebaseService.logEvent('sign_up_email');
       return user;
     } on firebase_auth.FirebaseAuthException catch (error) {
@@ -183,7 +191,7 @@ class AuthService {
       final userDoc = FirebaseFirestore.instance
           .collection('users')
           .doc(firebaseUser.uid);
-      final snapshot = await userDoc.get();
+      final snapshot = await _runFirebaseOperation(userDoc.get());
       final user = snapshot.exists
           ? AppUser.fromJson(snapshot.data()!)
           : AppUser(
@@ -203,12 +211,9 @@ class AuthService {
             );
 
       if (!snapshot.exists) {
-        await userDoc.set(user.toJson());
+        await _runFirebaseOperation(userDoc.set(user.toJson()));
       }
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-      if (fcmToken != null) {
-        await userDoc.set({'fcmToken': fcmToken}, SetOptions(merge: true));
-      }
+      await _saveFcmToken(userDoc);
       if (!user.isActive) {
         await firebase_auth.FirebaseAuth.instance.signOut();
         throw const AuthException('Tài khoản này đang bị khóa.');
@@ -219,11 +224,120 @@ class AuthService {
       );
       return user;
     } on firebase_auth.FirebaseAuthException catch (error) {
+      final defaultUser = await _tryCreateDefaultFirebaseUser(
+        email: normalizedEmail,
+        password: password,
+        signInError: error,
+      );
+      if (defaultUser != null) {
+        return defaultUser;
+      }
       throw AuthException(_friendlyFirebaseAuthError(error));
     }
   }
 
+  Future<AppUser?> _tryCreateDefaultFirebaseUser({
+    required String email,
+    required String password,
+    required firebase_auth.FirebaseAuthException signInError,
+  }) async {
+    if (!_canCreateMissingDefaultUser(signInError)) {
+      return null;
+    }
+
+    AppUser? defaultUser;
+    for (final user in UserDatabase.defaultUsers()) {
+      if (user.email.toLowerCase() == email && user.password == password) {
+        defaultUser = user;
+        break;
+      }
+    }
+
+    if (defaultUser == null) {
+      return null;
+    }
+
+    try {
+      final credential = await firebase_auth.FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) {
+        throw const AuthException('Không tạo được tài khoản Firebase.');
+      }
+
+      await firebaseUser.updateDisplayName(defaultUser.fullName);
+      final firebaseProfile = defaultUser.copyWith(
+        id: firebaseUser.uid,
+        password: '',
+      );
+      await _runFirebaseOperation(
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(firebaseUser.uid)
+            .set(firebaseProfile.toJson(), SetOptions(merge: true)),
+      );
+      await FirebaseService.logEvent(
+        'seed_default_user',
+        parameters: {'role': firebaseProfile.role.name},
+      );
+      return firebaseProfile;
+    } on firebase_auth.FirebaseAuthException catch (error) {
+      throw AuthException(_friendlyFirebaseAuthError(error));
+    }
+  }
+
+  bool _canCreateMissingDefaultUser(firebase_auth.FirebaseAuthException error) {
+    return switch (error.code) {
+      'user-not-found' || 'invalid-credential' => true,
+      _ => false,
+    };
+  }
+
+  Future<void> _saveFcmToken(
+    DocumentReference<Map<String, dynamic>> userDoc,
+  ) async {
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken().timeout(
+        _firebaseOperationTimeout,
+      );
+      if (fcmToken != null) {
+        await _runFirebaseOperation(
+          userDoc.set({'fcmToken': fcmToken}, SetOptions(merge: true)),
+        );
+      }
+    } on Object {
+      // FCM token is useful, but it should not block login.
+    }
+  }
+
+  Future<T> _runFirebaseOperation<T>(Future<T> operation) async {
+    try {
+      return await operation.timeout(_firebaseOperationTimeout);
+    } on TimeoutException {
+      throw const AuthException(_firestoreSetupMessage);
+    } on FirebaseException catch (error) {
+      if (_isFirestoreSetupError(error)) {
+        throw const AuthException(_firestoreSetupMessage);
+      }
+      throw AuthException(error.message ?? 'Lỗi Firebase: ${error.code}.');
+    }
+  }
+
+  bool _isFirestoreSetupError(FirebaseException error) {
+    final message = error.message?.toLowerCase() ?? '';
+    return error.plugin == 'cloud_firestore' &&
+        (error.code == 'permission-denied' ||
+            error.code == 'unavailable' ||
+            message.contains('firestore api') ||
+            message.contains('disabled') ||
+            message.contains('permission_denied'));
+  }
+
   String _friendlyFirebaseAuthError(firebase_auth.FirebaseAuthException error) {
+    if (_isFirebaseAuthConfigurationError(error)) {
+      return 'Firebase Authentication chưa bật Email/Password. Vào Firebase Console > Authentication > Sign-in method > Email/Password và bật lên, rồi chạy lại app.';
+    }
+
     return switch (error.code) {
       'email-already-in-use' => 'Email này đã được đăng ký.',
       'invalid-email' => 'Email không hợp lệ.',
@@ -234,6 +348,14 @@ class AuthService {
       'network-request-failed' => 'Không có kết nối mạng.',
       _ => error.message ?? 'Lỗi Firebase Authentication.',
     };
+  }
+
+  bool _isFirebaseAuthConfigurationError(
+    firebase_auth.FirebaseAuthException error,
+  ) {
+    final message = error.message?.toUpperCase() ?? '';
+    return error.code == 'configuration-not-found' ||
+        message.contains('CONFIGURATION_NOT_FOUND');
   }
 }
 

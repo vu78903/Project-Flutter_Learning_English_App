@@ -13,18 +13,29 @@ class UserDatabase {
           File('${Directory.systemTemp.path}/lexigo_users.json');
 
   final File _databaseFile;
+  static const _firestoreTimeout = Duration(seconds: 8);
 
   Future<List<AppUser>> getUsers() async {
     if (FirebaseService.isEnabled) {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .orderBy('totalEXP', descending: true)
-          .get();
-      return snapshot.docs
-          .map((doc) => AppUser.fromJson({'id': doc.id, ...doc.data()}))
-          .toList();
+      try {
+        final snapshot = await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('users')
+              .orderBy('totalEXP', descending: true)
+              .get(),
+        );
+        return snapshot.docs
+            .map((doc) => AppUser.fromJson({'id': doc.id, ...doc.data()}))
+            .toList();
+      } on Object {
+        return _getLocalUsers();
+      }
     }
 
+    return _getLocalUsers();
+  }
+
+  Future<List<AppUser>> _getLocalUsers() async {
     await _seedDefaultUsersIfNeeded();
 
     final rawData = await _databaseFile.readAsString();
@@ -38,19 +49,25 @@ class UserDatabase {
   Future<AppUser?> findByEmail(String email) async {
     final normalizedEmail = email.trim().toLowerCase();
     if (FirebaseService.isEnabled) {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: normalizedEmail)
-          .limit(1)
-          .get();
-      if (snapshot.docs.isEmpty) {
-        return null;
+      try {
+        final snapshot = await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('users')
+              .where('email', isEqualTo: normalizedEmail)
+              .limit(1)
+              .get(),
+        );
+        if (snapshot.docs.isEmpty) {
+          return null;
+        }
+        final doc = snapshot.docs.first;
+        return AppUser.fromJson({'id': doc.id, ...doc.data()});
+      } on Object {
+        // Fall back to the local users below.
       }
-      final doc = snapshot.docs.first;
-      return AppUser.fromJson({'id': doc.id, ...doc.data()});
     }
 
-    final users = await getUsers();
+    final users = await _getLocalUsers();
 
     for (final user in users) {
       if (user.email.toLowerCase() == normalizedEmail) {
@@ -63,28 +80,42 @@ class UserDatabase {
 
   Future<void> insertUser(AppUser user) async {
     if (FirebaseService.isEnabled) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.id)
-          .set(user.copyWith(email: user.email.trim().toLowerCase()).toJson());
-      return;
+      try {
+        await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.id)
+              .set(
+                user.copyWith(email: user.email.trim().toLowerCase()).toJson(),
+              ),
+        );
+        return;
+      } on Object {
+        // Fall back to the local users below.
+      }
     }
 
-    final users = await getUsers();
+    final users = await _getLocalUsers();
     users.add(user.copyWith(email: user.email.trim().toLowerCase()));
     await _saveUsers(users);
   }
 
   Future<void> updateUser(AppUser updatedUser) async {
     if (FirebaseService.isEnabled) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(updatedUser.id)
-          .set(updatedUser.toJson(), SetOptions(merge: true));
-      return;
+      try {
+        await _runFirestore(
+          FirebaseFirestore.instance
+              .collection('users')
+              .doc(updatedUser.id)
+              .set(updatedUser.toJson(), SetOptions(merge: true)),
+        );
+        return;
+      } on Object {
+        // Fall back to the local users below.
+      }
     }
 
-    final users = await getUsers();
+    final users = await _getLocalUsers();
     final updatedUsers = [
       for (final user in users)
         if (user.id == updatedUser.id) updatedUser else user,
@@ -95,7 +126,7 @@ class UserDatabase {
   Future<void> _seedDefaultUsersIfNeeded() async {
     if (!await _databaseFile.exists()) {
       await _databaseFile.create(recursive: true);
-      await _saveUsers(_defaultUsers());
+      await _saveUsers(defaultUsers());
       return;
     }
 
@@ -106,7 +137,7 @@ class UserDatabase {
         .toList();
     var hasChanged = false;
 
-    for (final defaultUser in _defaultUsers()) {
+    for (final defaultUser in defaultUsers()) {
       final exists = users.any(
         (user) => user.email.toLowerCase() == defaultUser.email.toLowerCase(),
       );
@@ -121,7 +152,7 @@ class UserDatabase {
     }
   }
 
-  List<AppUser> _defaultUsers() {
+  static List<AppUser> defaultUsers() {
     return [
       AppUser(
         id: 'admin-001',
@@ -155,5 +186,9 @@ class UserDatabase {
     await _databaseFile.writeAsString(
       encoder.convert(users.map((user) => user.toJson()).toList()),
     );
+  }
+
+  Future<T> _runFirestore<T>(Future<T> operation) {
+    return operation.timeout(_firestoreTimeout);
   }
 }
