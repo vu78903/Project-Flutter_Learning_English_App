@@ -730,7 +730,7 @@ class _AiConversationPageState extends State<_AiConversationPage> {
 
     setState(() => _isListening = true);
     await _speechToText.listen(
-      localeId: 'en_US',
+      listenOptions: SpeechListenOptions(localeId: 'en_US'),
       onResult: (result) {
         setState(() => _messageController.text = result.recognizedWords);
         if (result.finalResult) {

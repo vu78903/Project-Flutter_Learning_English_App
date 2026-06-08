@@ -25,10 +25,21 @@ class FirebaseService {
       _isEnabled = true;
       _analytics = FirebaseAnalytics.instance;
       _remoteConfig = FirebaseRemoteConfig.instance;
-      await _configureRemoteConfig();
-      await _configureMessaging();
     } on Object {
       _isEnabled = false;
+      return;
+    }
+
+    try {
+      await _configureRemoteConfig();
+    } on Object {
+      _remoteConfig = null;
+    }
+
+    try {
+      await _configureMessaging();
+    } on Object {
+      // Push notifications are optional; Firebase Auth/Firestore still work.
     }
   }
 

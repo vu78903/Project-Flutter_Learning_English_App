@@ -186,9 +186,6 @@ class LearningMaterialPage extends StatelessWidget {
       ),
     );
 
-    nameController.dispose();
-    coverController.dispose();
-
     if (result != null) {
       onSaveTopic(result);
     }
@@ -260,12 +257,6 @@ class LearningMaterialPage extends StatelessWidget {
         ],
       ),
     );
-
-    wordController.dispose();
-    meaningController.dispose();
-    pronunciationController.dispose();
-    imageController.dispose();
-    audioController.dispose();
 
     if (word != null) {
       onSaveTopic(topic.copyWith(vocabulary: [...topic.vocabulary, word]));

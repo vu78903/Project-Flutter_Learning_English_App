@@ -267,13 +267,6 @@ class GamesPage extends StatelessWidget {
       ),
     );
 
-    titleController.dispose();
-    questionController.dispose();
-    rewardController.dispose();
-    for (final controller in optionControllers) {
-      controller.dispose();
-    }
-
     if (result != null) {
       onSaveQuiz(result);
     }

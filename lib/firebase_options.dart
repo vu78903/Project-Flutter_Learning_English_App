@@ -65,5 +65,4 @@ class DefaultFirebaseOptions {
     authDomain: 'lexigo-1457f.firebaseapp.com',
     storageBucket: 'lexigo-1457f.firebasestorage.app',
   );
-
 }

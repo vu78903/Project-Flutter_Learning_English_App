@@ -164,9 +164,6 @@ class AiScenariosPage extends StatelessWidget {
       ),
     );
 
-    titleController.dispose();
-    promptController.dispose();
-
     if (result != null) {
       onSaveScenario(result);
     }
